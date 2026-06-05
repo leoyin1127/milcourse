@@ -1,0 +1,16 @@
+# Core (synthetic fallback — runs the whole course anywhere)
+numpy
+torch
+matplotlib
+
+# Optional: nicer embedding visualization in notebook 05 (PCA fallback if absent)
+umap-learn
+
+# Real WSI pipeline only (notebook 01 with USE_REAL_WSI = True)
+# Requires the OpenSlide system library: apt-get install openslide-tools  /  brew install openslide
+openslide-python
+opencv-python
+timm
+huggingface_hub
+torchvision
+h5py
