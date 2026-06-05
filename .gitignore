@@ -1,0 +1,25 @@
+# macOS
+.DS_Store
+
+# Node / Next.js (quiz-app)
+node_modules/
+.next/
+out/
+build/
+*.tsbuildinfo
+next-env.d.ts
+
+# Python
+__pycache__/
+*.py[cod]
+.ipynb_checkpoints/
+.venv/
+venv/
+
+# Env / secrets
+.env
+.env*.local
+
+# Logs
+*.log
+npm-debug.log*
