@@ -53,26 +53,58 @@ print('setup complete | feature cache:', CACHE)"""
 
 cells = [
 md(r"""
-# Introduction to Pathology MIL — hands-on (real TCGA, end-to-end)
+# Pathology MIL, hands-on: classifying lung cancer subtypes from whole-slide images
 
-A single self-contained notebook that runs the **whole MIL pipeline** on **real TCGA
-whole-slide images** for NSCLC subtyping — **TCGA-LUAD vs TCGA-LUSC**:
+This tutorial builds a complete **computational pathology** model, end to end, on **real data**. We
+take gigapixel tissue slides from public lung-cancer cases and train a model that tells apart the two
+main non-small-cell lung cancer (NSCLC) subtypes:
 
-> **GDC download → tissue seg → 20× patching → Midnight-12k features → train → infer → heatmaps → evaluate**
+- **LUAD** — lung *adenocarcinoma* (forms gland-like structures)
+- **LUSC** — lung *squamous cell carcinoma* (forms dense sheets of cells)
 
-Everything runs in **one Colab runtime**, so each section reuses the variables from the previous
-one — no cross-notebook data hand-off. The expensive download+encode is cached (to Google Drive
-if mounted, else locally), so re-running after a restart skips it.
+### The problem
+A whole-slide image (WSI) is a digitized microscope slide — often around **100,000 × 100,000 pixels**
+(a few gigabytes). Two things make it hard to learn from:
+1. It's **far too big** to feed into a neural network directly.
+2. We usually only know **one label for the whole slide** (its diagnosis) — not which specific
+   regions are cancerous.
 
-**Encoder:** Midnight-12k (`kaiko-ai/midnight`, MIT, ViT-g, 3072-d) — open, no gating, and the
-top non-gated pathology FM (beats gated H-optimus-0 / GigaPath / UNI on Kaiko's benchmark).
-**Run it:** Runtime → Change runtime type → **GPU**, then **Runtime → Run all**.
-⚠️ Notebook 01-style download+encode is real work — expect the build step to take a while.
+### The idea: Multiple Instance Learning (MIL)
+Instead of the whole slide, we cut it into thousands of small **patches**, convert each patch into a
+numeric **feature vector** with a pretrained encoder, and then train a small model to do two things at
+once: decide **which patches matter** and **combine them into one slide-level prediction** — learning
+from the slide label alone. A slide thus becomes a *bag* of patch vectors, which is where the name
+"multiple instance" comes from.
+
+### The pipeline you'll run
+> **download slides → find tissue → cut into patches → encode patches → train MIL model → predict → explain → evaluate**
+
+**Before you start:** switch to a GPU runtime (*Runtime → Change runtime type → GPU*), then *Runtime →
+Run all*. Slides come from the public NIH **GDC** portal, so there's no login or data-access request.
+The patch-encoding step is the slow part — it's doing real work, so give it time.
 """),
-md("## ⚙️ Setup — run first"),
+md(r"""
+## Setup — run this first
+
+The cell below prepares the environment: it installs **OpenSlide** (for reading `.svs` slide files)
+and the encoder library, fetches the small helper modules this notebook uses, and optionally mounts
+**Google Drive** so the encoded features are saved there (and don't need to be recomputed if the
+runtime restarts).
+"""),
 code(setup_code()),
 
-md("## 1 · Configuration"),
+md(r"""
+## 1 · Configuration
+
+A few settings to know:
+- **`PER_CLASS`** — how many slides per subtype. More slides give a better model *and* a more
+  reliable measurement of it, at the cost of a longer download+encode. 50 per class (~100 slides) is
+  a sensible size for a tutorial.
+- **`MAX_PATCHES`** — a cap on patches per slide, to keep encoding time and memory bounded.
+- **`ENCODER`** — the pretrained patch encoder. We use **Midnight-12k**, an openly available
+  pathology *foundation model* (a large vision model pretrained on many unlabeled pathology images);
+  it turns each 256-pixel tile into a 3072-dimensional feature vector.
+"""),
 code(r"""
 import torch
 from mil_tcga import build_cohort, load_bags, LABEL_NAME
@@ -89,26 +121,41 @@ print(f"device={DEVICE} | per_class={PER_CLASS} | cache={CACHE}")
 """),
 
 md(r"""
-## 2 · Build the TCGA feature cache  *(the one heavy step)*
+## 2 · From slides to feature "bags"
 
-`build_cohort` queries the public GDC portal for the smallest open-access diagnostic slides per
-class (one slide per patient → no leakage), then for each slide: download → segment tissue
-(Otsu on saturation) → 256-px patches at 20× → encode with Midnight-12k → cache the `(N×d)` bag.
-It is **idempotent** — already-cached slides are skipped, so if Colab disconnects just re-run.
-Slides are deleted right after encoding, so only the small bags accumulate.
+This is the core of data preparation — and the most compute-heavy step. For each slide, the
+`build_cohort` helper does the following:
+
+1. **Download** the slide (`.svs`) from the GDC portal.
+2. **Segment tissue.** Most of a slide is empty glass. We convert to HSV and threshold the
+   saturation channel (Otsu's method) to keep only the tissue, so we don't waste effort on background.
+3. **Patch.** Lay a grid over the tissue and cut 256×256-pixel tiles at **20× magnification** — the
+   zoom level where individual cells and nuclei are visible.
+4. **Encode.** Pass each tile through the **frozen** foundation model. Every tile collapses to one
+   feature vector; a slide's stack of vectors, shape `(N patches × d)`, is its **bag**.
+5. **Cache.** Save the bag to disk. Encoding is expensive, so we do it once and reuse it.
+
+Each slide ends up as a compact `(N × d)` feature array plus the patch coordinates — all the MIL
+model needs. The step is **resumable**: already-encoded slides are skipped, and each downloaded slide
+is deleted right after encoding, so disk stays small.
 """),
 code(r"""
 build_cohort(CACHE_BAGS, per_class=PER_CLASS, device=DEVICE,
              encoder=ENCODER, max_patches=MAX_PATCHES)
 
-data = load_bags(CACHE_BAGS)          # in-memory dataset reused by every section below
-IN_DIM = data[0]["features"].shape[1]
 import numpy as np
-print(f"{len(data)} bags | dim={IN_DIM} | "
+data = load_bags(CACHE_BAGS)          # load the cached bags
+IN_DIM = data[0]["features"].shape[1]
+print(f"{len(data)} bags | feature dim={IN_DIM} | "
       f"LUSC={sum(d['label']==1 for d in data)}  LUAD={sum(d['label']==0 for d in data)}")
 """),
+md(r"""
+### A look at the data
+Let's view one slide of each subtype with the extracted patches drawn on top, so you can see which
+tissue regions were tiled and turned into the bag.
+"""),
 code(r"""
-# Peek: one LUAD and one LUSC thumbnail, with the extracted patches overlaid
+# One LUAD and one LUSC thumbnail, with the extracted patches overlaid
 import matplotlib.pyplot as plt
 fig, ax = plt.subplots(1, 2, figsize=(12, 5.5))
 for a, lab in zip(ax, [0, 1]):
@@ -122,13 +169,25 @@ plt.tight_layout(); plt.show()
 """),
 
 md(r"""
-## 3 · Train the MIL aggregators
+## 3 · Training the MIL model
 
-Compact implementations live in `mil_models.py` (mean/max pool, gated **ABMIL**, **CLAM-SB**
-with the instance-clustering loss). We use **patient-stratified** CV and weighted cross-entropy,
-and report **mean ± std AUROC**. With ~100 slides the folds are larger so the metric is far less
-jumpy than a tiny cohort, but these are still *illustrative* numbers — the point is
-the methodology and beating the mean-pool baseline.
+Now we train the part that turns a bag of patch features into a slide prediction. We compare three
+ways of pooling the patches, from simplest to most capable:
+
+- **Mean pooling** — average all patch vectors. A simple baseline that treats every patch equally.
+- **ABMIL** (*attention-based MIL*) — learns an **attention weight** for each patch so diagnostic
+  patches count more than background. Those weights also reveal *where* the model looked.
+- **CLAM-SB** — ABMIL plus an auxiliary "does this patch look tumor-like?" task that sharpens the
+  attention and tends to improve results.
+
+**Measuring it honestly:**
+- **Patient-stratified cross-validation** — we split by *patient*, so no patient's slides appear in
+  both training and testing. (Letting them leak across would inflate the scores.)
+- **Class weighting** — the loss is weighted by inverse class frequency so the rarer subtype isn't ignored.
+- **AUROC, mean ± std across folds** — a threshold-free score of how well the model ranks LUSC above
+  LUAD (1.0 = perfect, 0.5 = chance). A useful attention model should beat the mean-pool baseline.
+
+The model code is short and readable in `mil_models.py`; we print the attention module below.
 """),
 code(r"""
 import inspect, mil_models, numpy as np, torch
@@ -156,7 +215,7 @@ for name, aucs in results.items():
     print(f"  {name:9s}: {np.nanmean(aucs):.3f} ± {np.nanstd(aucs):.3f}")
 """),
 code(r"""
-# Final CLAM-SB on all data, kept in memory (and cached to Drive) for the sections below
+# Train a final CLAM-SB on most of the slides; used for inference & visualization below
 idx = np.arange(len(data)); np.random.shuffle(idx)
 cut = int(0.8 * len(idx)); tr, va = idx[:cut].tolist(), idx[cut:].tolist()
 final = build_model("clam_sb", IN_DIM, 2)
@@ -167,7 +226,14 @@ torch.save({"state_dict": final.state_dict(), "model": "clam_sb",
 print("final model trained | best val AUROC:", round(max(hist), 3))
 """),
 
-md("## 4 · Inference — score a slide (reuses the in-memory `final` model)"),
+md(r"""
+## 4 · Inference — predicting on a slide
+
+With a trained model we can score any slide: feed its bag of patch features through the model and read
+off the class probabilities. The *same* forward pass also returns the per-patch **attention weights**,
+which we'll visualize in the next section. In a real workflow you'd add a confidence threshold and
+route uncertain cases to a pathologist — a simple version is shown below.
+"""),
 code(r"""
 sample = data[-1]
 feats  = torch.from_numpy(sample["features"]).to(DEVICE)
@@ -183,9 +249,19 @@ print("call:", decision(prob))
 """),
 
 md(r"""
-## 5 · Post-processing — attention heatmap, top-k, case aggregation
+## 5 · Explaining the prediction
 
-> ⚠️ Attention *localises* but does not *prove* causation — a hypothesis for the pathologist.
+A prediction is far more trustworthy if we can see *why* the model made it. The attention weights
+tell us how much each patch contributed, so we can:
+
+- **Heatmap** — paint each patch's attention back onto the slide image; bright spots are the regions
+  the model relied on.
+- **Top patches** — list the highest-attention tiles as a quick evidence panel.
+- **Patient-level call** — a patient may have several slides, so we combine their slide scores into a
+  single decision (here: call the patient LUSC if *any* of their slides looks like LUSC).
+
+> ⚠️ Attention shows *where the model looked*, not biological proof — treat hotspots as a hypothesis
+> to verify, not ground truth.
 """),
 code(r"""
 thumb, ds, coords = sample["thumb"], sample["thumb_ds"], sample["coords"]
@@ -215,7 +291,18 @@ for pid, rec in list(by_patient.items())[:12]:
     print(f"{pid:14s} {cp:8.2f} {LABEL_NAME[int(cp>=0.5)]:>6s}  {LABEL_NAME[max(l for _,l in rec)]}")
 """),
 
-md("## 6 · Evaluation — out-of-fold metrics, ROC, confusion, UMAP"),
+md(r"""
+## 6 · Evaluation
+
+Finally we measure the model properly, using **out-of-fold predictions** — every slide is scored by a
+model that never saw it in training — and report:
+
+- **AUROC** — ranking quality (1.0 = perfect, 0.5 = chance).
+- **AUPRC** and **balanced accuracy** — more informative than plain accuracy when the classes are imbalanced.
+- A **ROC curve** and a **confusion matrix** to see the kinds of mistakes the model makes.
+- A **UMAP** of the patch features colored by subtype — a sanity check that the encoder already
+  separates LUAD from LUSC even before any MIL training.
+"""),
 code(r"""
 oof_y, oof_p, per_fold = [], [], []
 for tr, va in patient_stratified_kfold(data, n_folds=4, seed=2):
@@ -269,11 +356,24 @@ plt.legend(); plt.title(f"{ttl} of patch embeddings"); plt.tight_layout(); plt.s
 """),
 
 md(r"""
-## ✅ Recap
-- One runtime, end-to-end: **download → encode → train → infer → heatmap → evaluate**.
-- Frozen **Midnight-12k** features + a small trainable **CLAM-SB** head.
-- Honest evaluation: **patient-level** splits, **mean ± std**, beat **mean-pool**, inspect attention + UMAP.
-- ⚠️ ~100 slides is still a small *teaching* cohort — for real claims raise `PER_CLASS` further and validate on an **external cohort**.
+## ✅ Recap — what you built
+
+Starting from raw gigapixel pathology slides, you built a complete lung-cancer subtype classifier:
+
+1. **Data prep** — downloaded real TCGA slides, segmented tissue, cut patches, and encoded them into
+   feature bags with a pathology foundation model.
+2. **Model** — trained an attention-based MIL model (CLAM-SB) on top of those frozen features, and
+   showed it beats a mean-pooling baseline.
+3. **Explainability** — turned the attention weights into heatmaps and an evidence panel of top patches.
+4. **Evaluation** — measured it honestly with patient-level cross-validation, AUROC/AUPRC/balanced
+   accuracy, a ROC curve, a confusion matrix, and a UMAP of the features.
+
+**Ideas worth keeping:**
+- MIL learns from *slide-level* labels by pooling many patches — no per-region annotation needed.
+- A strong pretrained **encoder does most of the work**; the MIL head is small and learns fast.
+- **Split by patient** to avoid leakage, and report **more than one metric**.
+- This is a teaching-sized cohort (~100 slides). For real conclusions, train on many more slides and
+  validate on an **independent cohort** from a different institution or scanner.
 """),
 ]
 
