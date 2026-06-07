@@ -108,13 +108,16 @@ print(f"{len(data)} bags | dim={IN_DIM} | "
       f"LUSC={sum(d['label']==1 for d in data)}  LUAD={sum(d['label']==0 for d in data)}")
 """),
 code(r"""
-# Peek: one LUAD and one LUSC thumbnail from the cache
+# Peek: one LUAD and one LUSC thumbnail, with the extracted patches overlaid
 import matplotlib.pyplot as plt
-fig, ax = plt.subplots(1, 2, figsize=(11, 5))
+fig, ax = plt.subplots(1, 2, figsize=(12, 5.5))
 for a, lab in zip(ax, [0, 1]):
     d = next(x for x in data if x["label"] == lab)
-    a.imshow(d["thumb"]); a.set_title(f"{LABEL_NAME[lab]}  ({len(d['features'])} patches)")
-    a.axis("off")
+    a.imshow(d["thumb"])
+    tx, ty = d["coords"][:, 0] / d["thumb_ds"], d["coords"][:, 1] / d["thumb_ds"]
+    a.scatter(tx, ty, s=8, marker="s", facecolors="none", edgecolors="tab:blue", linewidths=0.4, alpha=0.6)
+    a.set_title(f"{LABEL_NAME[lab]}  ({len(d['features'])} patches)"); a.axis("off")
+plt.suptitle("blue squares = the 256-px tissue patches that were tiled & encoded")
 plt.tight_layout(); plt.show()
 """),
 
@@ -186,7 +189,7 @@ md(r"""
 code(r"""
 thumb, ds, coords = sample["thumb"], sample["thumb_ds"], sample["coords"]
 tx, ty = coords[:, 0] / ds, coords[:, 1] / ds
-a = (attn - attn.min()) / (attn.ptp() + 1e-8)
+a = (attn - attn.min()) / (np.ptp(attn) + 1e-8)   # np.ptp: ndarray.ptp() was removed in NumPy 2.0
 fig, ax = plt.subplots(1, 2, figsize=(12, 5))
 ax[0].imshow(thumb); ax[0].set_title(f"{LABEL_NAME[sample['label']]} slide"); ax[0].axis("off")
 ax[1].imshow(thumb); sc = ax[1].scatter(tx, ty, c=a, cmap="magma", s=14, alpha=0.6)

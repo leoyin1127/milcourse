@@ -80,7 +80,8 @@ def compute_metrics(y_true, y_prob):
         prec = tp / np.maximum(tp + fp, 1)
         rec = tp / max(y.sum(), 1)
         rec = np.concatenate([[0], rec]); prec = np.concatenate([[1], prec])
-        return float(np.trapz(prec, rec))
+        # trapezoidal area (manual: np.trapz is deprecated in NumPy 2.0)
+        return float(np.sum(np.diff(rec) * (prec[1:] + prec[:-1]) / 2.0))
 
     pred = (y_prob >= 0.5).astype(int)
     tp = int(((pred == 1) & (y_true == 1)).sum())
