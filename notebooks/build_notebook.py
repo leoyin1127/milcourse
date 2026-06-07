@@ -25,12 +25,12 @@ def setup_code():
 import os, sys, subprocess
 def _sh(c): print('$', c); subprocess.run(c, shell=True)
 
-# 1) WSI pipeline dependencies (OpenSlide + timm for H-optimus-0)
+# 1) WSI pipeline dependencies (OpenSlide + transformers for Midnight-12k)
 try:
     import openslide  # noqa
 except Exception:
     _sh('apt-get -qq update && apt-get -qq install -y openslide-tools')
-    _sh('pip -q install openslide-python timm einops')
+    _sh('pip -q install openslide-python "transformers>=4.40"')
 
 # 2) Course helper modules: use the local copy if present (running inside the repo),
 #    otherwise clone the public repo and add it to the path.
@@ -58,13 +58,14 @@ md(r"""
 A single self-contained notebook that runs the **whole MIL pipeline** on **real TCGA
 whole-slide images** for NSCLC subtyping — **TCGA-LUAD vs TCGA-LUSC**:
 
-> **GDC download → tissue seg → 20× patching → H-optimus-0 features → train → infer → heatmaps → evaluate**
+> **GDC download → tissue seg → 20× patching → Midnight-12k features → train → infer → heatmaps → evaluate**
 
 Everything runs in **one Colab runtime**, so each section reuses the variables from the previous
 one — no cross-notebook data hand-off. The expensive download+encode is cached (to Google Drive
 if mounted, else locally), so re-running after a restart skips it.
 
-**Encoder:** H-optimus-0 (Bioptimus, ViT-G, dim 1536) — open, no gating.
+**Encoder:** Midnight-12k (`kaiko-ai/midnight`, MIT, ViT-g, 3072-d) — open, no gating, and the
+top non-gated pathology FM (beats gated H-optimus-0 / GigaPath / UNI on Kaiko's benchmark).
 **Run it:** Runtime → Change runtime type → **GPU**, then **Runtime → Run all**.
 ⚠️ Notebook 01-style download+encode is real work — expect the build step to take a while.
 """),
@@ -78,12 +79,12 @@ from mil_tcga import build_cohort, load_bags, LABEL_NAME
 
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 if DEVICE != "cuda":
-    print("⚠️  No GPU detected — H-optimus-0 is very slow on CPU. "
+    print("⚠️  No GPU detected — Midnight-12k is very slow on CPU. "
           "Runtime → Change runtime type → GPU, then re-run.")
 
 PER_CLASS   = 15      # slides per class (LUAD / LUSC); ~30 total. Lower to go faster.
 MAX_PATCHES = 2000    # cap patches/slide to bound encode time & memory
-ENCODER     = "bioptimus/H-optimus-0"
+ENCODER     = "kaiko-ai/midnight"
 print(f"device={DEVICE} | per_class={PER_CLASS} | cache={CACHE}")
 """),
 
@@ -92,7 +93,7 @@ md(r"""
 
 `build_cohort` queries the public GDC portal for the smallest open-access diagnostic slides per
 class (one slide per patient → no leakage), then for each slide: download → segment tissue
-(Otsu on saturation) → 256-px patches at 20× → encode with H-optimus-0 → cache the `(N×d)` bag.
+(Otsu on saturation) → 256-px patches at 20× → encode with Midnight-12k → cache the `(N×d)` bag.
 It is **idempotent** — already-cached slides are skipped, so if Colab disconnects just re-run.
 Slides are deleted right after encoding, so only the small bags accumulate.
 """),
@@ -245,7 +246,7 @@ ax[1].set_xticks([0,1], ["pred LUAD","pred LUSC"]); ax[1].set_yticks([0,1], ["LU
 ax[1].set_title("confusion @0.5"); plt.tight_layout(); plt.show()
 """),
 code(r"""
-# UMAP of H-optimus-0 patch embeddings (falls back to PCA if umap-learn absent)
+# UMAP of Midnight-12k patch embeddings (falls back to PCA if umap-learn absent)
 rng = np.random.default_rng(0); feats, lab = [], []
 for d in data:
     n = min(80, len(d["features"])); sel = rng.choice(len(d["features"]), n, replace=False)
@@ -266,7 +267,7 @@ plt.legend(); plt.title(f"{ttl} of patch embeddings"); plt.tight_layout(); plt.s
 md(r"""
 ## ✅ Recap
 - One runtime, end-to-end: **download → encode → train → infer → heatmap → evaluate**.
-- Frozen **H-optimus-0** features + a small trainable **CLAM-SB** head.
+- Frozen **Midnight-12k** features + a small trainable **CLAM-SB** head.
 - Honest evaluation: **patient-level** splits, **mean ± std**, beat **mean-pool**, inspect attention + UMAP.
 - ⚠️ ~30 slides is a *teaching* cohort — raise `PER_CLASS` and validate on an **external cohort** for real claims.
 """),

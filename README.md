@@ -17,7 +17,7 @@ milcourse/
 │   ├── pathology_mil_tcga.ipynb      ← ONE end-to-end notebook (download→encode→train→infer→heatmap→eval)
 │   ├── build_notebook.py             ← regenerates the notebook (embeds the helper modules)
 │   ├── mil_models.py                 ← reference MIL aggregators (mean/max, ABMIL, CLAM-SB)
-│   ├── mil_tcga.py                   ← TCGA pipeline: GDC download, WSI seg/patch, H-optimus-0, cache
+│   ├── mil_tcga.py                   ← TCGA pipeline: GDC download, WSI seg/patch, Midnight-12k, cache
 │   ├── mil_utils.py                  ← leakage-safe CV, metrics, train/eval loops
 │   └── requirements.txt
 └── quiz/
@@ -37,14 +37,16 @@ Conclusion + quiz.
 `notebooks/pathology_mil_tcga.ipynb` runs the **whole pipeline in one Colab runtime** on **real
 TCGA whole-slide images** (no synthetic data) for NSCLC subtyping — **TCGA-LUAD vs TCGA-LUSC**:
 
-> **GDC download → tissue seg → 20× patching → H-optimus-0 features → train → infer → heatmaps → evaluate**
+> **GDC download → tissue seg → 20× patching → Midnight-12k features → train → infer → heatmaps → evaluate**
 
 Because everything runs in one runtime, each section reuses the previous section's in-memory
 variables — there's no cross-notebook hand-off. The expensive download+encode is **cached** (to
 Google Drive if mounted, else locally under `pathology_mil_tcga/`), so re-running after a runtime
 restart skips it. The build step is idempotent — already-cached slides are skipped.
 
-**Encoder:** H-optimus-0 (Bioptimus ViT-G, dim 1536) — open, no gating.
+**Encoder:** Midnight-12k (`kaiko-ai/midnight`, MIT, ViT-g, 3072-d) — open, no gating, and the
+top non-gated pathology foundation model (beats gated H-optimus-0 / Prov-GigaPath / UNI on Kaiko's
+benchmark; `owkin/phikon` and `owkin/phikon-v2` are lighter open alternatives).
 
 **To run:** open the notebook in Colab → **Runtime → Change runtime type → GPU** → **Run all**.
 The first cell installs deps, pulls the helper modules from this repo (`git clone`, or uses the
@@ -61,7 +63,7 @@ cd notebooks && pip install -r requirements.txt   # + the OpenSlide system libra
 ```
 
 **Knobs** (cell "1 · Configuration"): `PER_CLASS` (slides per class, default 15 — lower to go
-faster), `MAX_PATCHES` (per-slide patch cap, default 2000), `ENCODER` (default `bioptimus/H-optimus-0`).
+faster), `MAX_PATCHES` (per-slide patch cap, default 2000), `ENCODER` (default `kaiko-ai/midnight`).
 
 ## Quiz
 

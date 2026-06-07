@@ -12,8 +12,7 @@ requests            # GDC API download (notebook 01)
 # Feature extraction (notebook 01)
 openslide-python    # needs the OpenSlide C lib: apt-get install openslide-tools  /  brew install openslide
 opencv-python       # tissue segmentation
-timm                # loads H-optimus-0 (bioptimus/H-optimus-0)
-einops
+transformers>=4.40  # loads Midnight-12k (kaiko-ai/midnight)
 huggingface_hub
 
 # Optional: UMAP in notebook 05 (falls back to PCA if absent)

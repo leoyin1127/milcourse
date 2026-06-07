@@ -4,7 +4,7 @@ mil_tcga.py — Real TCGA data pipeline for the Pathology MIL course.
 Builds feature *bags* from real TCGA whole-slide images (no synthetic data):
 
     GDC query  →  download .svs  →  tissue segmentation  →  20x patching
-               →  H-optimus-0 feature extraction  →  cache (N×d) bag to disk
+               →  Midnight-12k feature extraction  →  cache (N×d) bag to disk
 
 Task: NSCLC subtyping — TCGA-LUAD (label 0) vs TCGA-LUSC (label 1).
 
@@ -144,37 +144,36 @@ def thumbnail(slide, max_side=1024):
 
 
 # ---------------------------------------------------------------------------
-# 3. H-optimus-0 patch encoder (open, no gating; ViT-G, embedding dim 1536)
+# 3. Midnight-12k patch encoder (kaiko-ai/midnight; open MIT, NO gating; ViT-g)
+#    Top non-gated pathology FM — beats H-optimus-0 / GigaPath / UNI on Kaiko's
+#    benchmark. Loads via HuggingFace transformers (no token). The classification
+#    embedding is concat(CLS, mean patch tokens) -> 3072-d.
 # ---------------------------------------------------------------------------
-def load_encoder(name="bioptimus/H-optimus-0", device="cuda"):
-    import torch, timm
+def load_encoder(name="kaiko-ai/midnight", device="cuda"):
+    import torch
+    from transformers import AutoModel
     from torchvision import transforms
-    model = timm.create_model(f"hf-hub:{name}", pretrained=True,
-                              init_values=1e-5, dynamic_img_size=False)
-    model.eval().to(device)
-    # H-optimus-0 normalization (from the model card); 224x224 input
-    tfm = transforms.Compose([
+    model = AutoModel.from_pretrained(name).eval().to(device)
+    tfm = transforms.Compose([                              # per the Midnight model card
+        transforms.Resize(224),
+        transforms.CenterCrop(224),
         transforms.ToTensor(),
-        transforms.Normalize(mean=(0.707223, 0.578729, 0.703617),
-                             std=(0.211883, 0.230117, 0.177517)),
+        transforms.Normalize(mean=(0.5, 0.5, 0.5), std=(0.5, 0.5, 0.5)),
     ])
     return model, tfm
 
 
-def extract_features(slide, coords, model, tfm, patch_l0, enc_px=224, batch=48, device="cuda"):
+def extract_features(slide, coords, model, tfm, patch_l0, batch=32, device="cuda"):
     import torch
     feats = []
     autocast = torch.autocast("cuda", dtype=torch.float16) if device == "cuda" else _nullctx()
     with torch.inference_mode(), autocast:
         for i in range(0, len(coords), batch):
-            tiles = []
-            for (x, y) in coords[i:i + batch]:
-                im = slide.read_region((int(x), int(y)), 0, (patch_l0, patch_l0)).convert("RGB")
-                if im.size != (enc_px, enc_px):
-                    im = im.resize((enc_px, enc_px))
-                tiles.append(tfm(im))
-            out = model(torch.stack(tiles).to(device))          # (B, 1536)
-            feats.append(out.float().cpu())
+            tiles = [tfm(slide.read_region((int(x), int(y)), 0, (patch_l0, patch_l0)).convert("RGB"))
+                     for (x, y) in coords[i:i + batch]]
+            out = model(torch.stack(tiles).to(device)).last_hidden_state   # (B, 1+P, H)
+            emb = torch.cat([out[:, 0, :], out[:, 1:, :].mean(1)], dim=-1)  # CLS+mean -> (B, 3072)
+            feats.append(emb.float().cpu())
     import torch as _t
     return _t.cat(feats).half().numpy()                          # store fp16 to save space
 
@@ -188,7 +187,7 @@ class _nullctx:
 # 4. Orchestration: build / load the cached cohort
 # ---------------------------------------------------------------------------
 def process_slide(meta, cache_dir, model, tfm, target_mpp=0.5, patch_px=256,
-                  enc_px=224, max_patches=2000, device="cuda", tmp_dir="/content/_svs"):
+                  max_patches=2000, device="cuda", tmp_dir="/content/_svs"):
     """Download → segment → patch → encode → cache one slide's bag. Returns bag path
     or None on failure. Deletes the .svs afterwards to keep disk usage low."""
     import openslide, torch
@@ -207,7 +206,7 @@ def process_slide(meta, cache_dir, model, tfm, target_mpp=0.5, patch_px=256,
         if len(coords) < 16:
             print(f"  [skip] {meta['file_name']}: too little tissue ({len(coords)} patches)")
             return None
-        feats = extract_features(slide, coords, model, tfm, patch_l0, enc_px=enc_px, device=device)
+        feats = extract_features(slide, coords, model, tfm, patch_l0, device=device)
         thumb, thumb_ds = thumbnail(slide)
         torch.save({"slide_id": meta["file_id"], "patient_id": meta["patient_id"],
                     "label": meta["label"], "project": meta["project"],
@@ -224,7 +223,7 @@ def process_slide(meta, cache_dir, model, tfm, target_mpp=0.5, patch_px=256,
             os.remove(svs)                                       # free disk immediately
 
 
-def build_cohort(cache_dir, per_class=15, device="cuda", encoder="bioptimus/H-optimus-0",
+def build_cohort(cache_dir, per_class=15, device="cuda", encoder="kaiko-ai/midnight",
                  max_patches=2000, max_bytes=1_200_000_000):
     """Build (or resume) the cached TCGA cohort under cache_dir. Idempotent: already-cached
     slides are skipped, so re-running resumes after an interruption."""
