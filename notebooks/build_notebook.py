@@ -6,7 +6,7 @@ One notebook, one Colab runtime: download+encode TCGA once, then train -> infer
 Drive hand-off). Features are still cached to disk/Drive so a runtime restart
 skips the re-download.
 """
-import json, os, base64, gzip
+import json, os
 
 def md(s):  return {"cell_type": "markdown", "metadata": {}, "source": s.strip("\n").splitlines(keepends=True)}
 def code(s): return {"cell_type": "code", "metadata": {}, "execution_count": None, "outputs": [], "source": s.strip("\n").splitlines(keepends=True)}
@@ -18,37 +18,38 @@ def nb(cells):
             "nbformat": 4, "nbformat_minor": 5}
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-def _gz64(fn):
-    return base64.b64encode(gzip.compress(open(os.path.join(HERE, fn), "rb").read())).decode()
-_EMBED = {fn: _gz64(fn) for fn in ("mil_models.py", "mil_utils.py", "mil_tcga.py")}
+REPO_URL = "https://github.com/leoyin1127/milcourse.git"
 
 def setup_code():
-    L = ["# === Colab setup - RUN THIS CELL FIRST (use a GPU runtime) ===",
-         "import os, base64, gzip, subprocess",
-         "def _sh(c): print('$', c); subprocess.run(c, shell=True)",
-         "# WSI pipeline deps (OpenSlide + timm for H-optimus-0)",
-         "try:",
-         "    import openslide  # noqa",
-         "except Exception:",
-         "    _sh('apt-get -qq update && apt-get -qq install -y openslide-tools')",
-         "    _sh('pip -q install openslide-python timm einops')",
-         "# Optional Google Drive cache so a runtime restart skips the re-download",
-         "try:",
-         "    from google.colab import drive; drive.mount('/content/drive')",
-         "    CACHE = '/content/drive/MyDrive/pathology_mil_tcga'",
-         "except Exception:",
-         "    CACHE = os.path.abspath('./pathology_mil_tcga')   # local fallback",
-         "CACHE_BAGS = os.path.join(CACHE, 'bags'); os.makedirs(CACHE_BAGS, exist_ok=True)",
-         "MODEL_PATH = os.path.join(CACHE, 'mil_model.pt')",
-         "# Write the course helper modules (self-contained)",
-         "_FILES = {"]
-    for fn, b in _EMBED.items():
-        L.append(f"    '{fn}': '{b}',")
-    L += ["}",
-          "for _n, _b in _FILES.items():",
-          "    open(_n, 'w').write(gzip.decompress(base64.b64decode(_b)).decode('utf-8'))",
-          "print('setup complete | feature cache:', CACHE)"]
-    return "\n".join(L)
+    return f"""# === Colab setup - RUN THIS CELL FIRST (use a GPU runtime) ===
+import os, sys, subprocess
+def _sh(c): print('$', c); subprocess.run(c, shell=True)
+
+# 1) WSI pipeline dependencies (OpenSlide + timm for H-optimus-0)
+try:
+    import openslide  # noqa
+except Exception:
+    _sh('apt-get -qq update && apt-get -qq install -y openslide-tools')
+    _sh('pip -q install openslide-python timm einops')
+
+# 2) Course helper modules: use the local copy if present (running inside the repo),
+#    otherwise clone the public repo and add it to the path.
+try:
+    import mil_tcga  # noqa
+except Exception:
+    if not os.path.isdir('/content/milcourse'):
+        _sh('git clone -q {REPO_URL} /content/milcourse')
+    sys.path.append('/content/milcourse/notebooks')
+
+# 3) Optional Google Drive cache so a runtime restart skips the re-download
+try:
+    from google.colab import drive; drive.mount('/content/drive')
+    CACHE = '/content/drive/MyDrive/pathology_mil_tcga'
+except Exception:
+    CACHE = os.path.abspath('./pathology_mil_tcga')   # local fallback
+CACHE_BAGS = os.path.join(CACHE, 'bags'); os.makedirs(CACHE_BAGS, exist_ok=True)
+MODEL_PATH = os.path.join(CACHE, 'mil_model.pt')
+print('setup complete | feature cache:', CACHE)"""
 
 cells = [
 md(r"""

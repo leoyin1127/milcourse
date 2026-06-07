@@ -47,8 +47,13 @@ restart skips it. The build step is idempotent — already-cached slides are ski
 **Encoder:** H-optimus-0 (Bioptimus ViT-G, dim 1536) — open, no gating.
 
 **To run:** open the notebook in Colab → **Runtime → Change runtime type → GPU** → **Run all**.
-The first cell installs deps, (optionally) mounts Drive, and writes the helper modules — the
-notebook is otherwise self-contained. ⚠️ The download+encode step does real work and takes a while.
+The first cell installs deps, pulls the helper modules from this repo (`git clone`, or uses the
+local copy when run inside the repo), and optionally mounts Drive for the cache. ⚠️ The
+download+encode step does real work and takes a while.
+
+> Note: the Colab setup clones this repo to get `mil_tcga.py` / `mil_models.py` / `mil_utils.py`,
+> so **push the repo to GitHub (public)** first. If the repo is private, mount Drive and copy the
+> `notebooks/` folder there, or run the notebook from a local clone instead.
 
 ```bash
 # local (non-Colab) use also works:
