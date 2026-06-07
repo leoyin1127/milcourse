@@ -8,7 +8,7 @@ the per-patch attention vector used for heatmaps.
 
     logits, attn, extra = model(H)        # H: (N, d)  →  logits: (1, n_classes)
 
-Tested on synthetic bags in utils.make_synthetic_dataset.
+Operates on real TCGA feature bags cached by notebook 01 (see mil_tcga.load_bags).
 """
 from __future__ import annotations
 import torch

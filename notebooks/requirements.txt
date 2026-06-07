@@ -1,16 +1,20 @@
-# Core (synthetic fallback — runs the whole course anywhere)
+# Pathology MIL course — real TCGA pipeline (Colab-ready)
+# On Google Colab, torch / numpy / matplotlib / opencv are preinstalled and the
+# notebooks' setup cell installs the rest. This file is for local/non-Colab use.
+
+# Core
 numpy
 torch
-matplotlib
-
-# Optional: nicer embedding visualization in notebook 05 (PCA fallback if absent)
-umap-learn
-
-# Real WSI pipeline only (notebook 01 with USE_REAL_WSI = True)
-# Requires the OpenSlide system library: apt-get install openslide-tools  /  brew install openslide
-openslide-python
-opencv-python
-timm
-huggingface_hub
 torchvision
-h5py
+matplotlib
+requests            # GDC API download (notebook 01)
+
+# Feature extraction (notebook 01)
+openslide-python    # needs the OpenSlide C lib: apt-get install openslide-tools  /  brew install openslide
+opencv-python       # tissue segmentation
+timm                # loads H-optimus-0 (bioptimus/H-optimus-0)
+einops
+huggingface_hub
+
+# Optional: UMAP in notebook 05 (falls back to PCA if absent)
+umap-learn

@@ -1,66 +1,19 @@
 """
-mil_utils.py — Shared helpers for the Pathology MIL course notebooks.
+mil_utils.py — Shared, model-agnostic helpers for the Pathology MIL course.
 
 Provides:
-  * make_synthetic_dataset  — realistic synthetic feature *bags* so every notebook
-    runs end-to-end without downloading TCGA / a GPU. Mimics the (N×d) tensors a
-    real foundation encoder would produce, with a planted "tumor" signal.
   * patient_stratified_kfold — leakage-safe CV splitter (split by patient).
   * train_one / evaluate     — minimal MIL train / eval loops.
   * compute_metrics          — AUROC, balanced accuracy, AUPRC, etc.
 
-The synthetic generator lets notebooks 02 and 05 produce *real* trained models
-and *real* metric curves. In practice you would replace `make_synthetic_dataset`
-with bags exported by notebook 01 from actual WSIs.
+These operate on the dict-list dataset format produced by `mil_tcga.load_bags`
+(one dict per slide: {slide_id, patient_id, label, features (N×d), coords, ...}).
+The data is real TCGA features cached by notebook 01 — there is no synthetic data.
 """
 from __future__ import annotations
 import numpy as np
 # NOTE: torch is imported lazily inside the training/eval functions so that the
-# data-prep and metrics helpers work in a torch-free environment.
-
-
-# ---------------------------------------------------------------------------
-# Synthetic "feature bags" that behave like real foundation-encoder output
-# ---------------------------------------------------------------------------
-def make_synthetic_dataset(n_patients=80, in_dim=512, seed=0,
-                           min_patches=200, max_patches=900,
-                           pos_fraction=0.5, signal=1.6):
-    """
-    Returns a list of dicts, one per slide:
-        {patient_id, slide_id, label, features (N,d float32), coords (N,2)}
-
-    A *positive* slide contains a small fraction of "tumor" patches drawn from a
-    shifted Gaussian (the planted signal); negative slides contain none. This is
-    exactly the MIL assumption: the bag is positive iff ≥1 instance is positive.
-    """
-    rng = np.random.default_rng(seed)
-    # a fixed random "tumor direction" in feature space
-    tumor_dir = rng.standard_normal(in_dim).astype("float32")
-    tumor_dir /= np.linalg.norm(tumor_dir)
-
-    data = []
-    for p in range(n_patients):
-        label = int(rng.random() < pos_fraction)
-        n_slides = rng.integers(1, 3)  # 1–2 slides per patient
-        for s in range(n_slides):
-            N = int(rng.integers(min_patches, max_patches))
-            X = rng.standard_normal((N, in_dim)).astype("float32")  # background tissue
-            if label == 1:
-                # plant a small focus of tumor patches (5–15% of the bag)
-                n_tumor = max(1, int(N * rng.uniform(0.05, 0.15)))
-                idx = rng.choice(N, n_tumor, replace=False)
-                X[idx] += signal * tumor_dir
-                tumor_mask = np.zeros(N, dtype=bool); tumor_mask[idx] = True
-            else:
-                tumor_mask = np.zeros(N, dtype=bool)
-            # fake 2-D patch coordinates on a grid (for heatmaps)
-            side = int(np.ceil(np.sqrt(N)))
-            ys, xs = np.divmod(np.arange(N), side)
-            coords = np.stack([xs, ys], axis=1).astype("int32") * 256
-            data.append(dict(patient_id=f"P{p:03d}", slide_id=f"P{p:03d}_S{s}",
-                             label=label, features=X, coords=coords,
-                             tumor_mask=tumor_mask))
-    return data, tumor_dir
+# metrics / split helpers work in a torch-free environment.
 
 
 # ---------------------------------------------------------------------------

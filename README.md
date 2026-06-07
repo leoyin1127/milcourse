@@ -20,7 +20,8 @@ milcourse/
 │   ├── 04_postprocessing.ipynb       ← attention heatmaps, top-k tiles, case aggregation
 │   ├── 05_evaluation_visualization.ipynb  ← AUROC/AUPRC/bAcc, ROC, confusion matrix, UMAP
 │   ├── mil_models.py                 ← reference MIL aggregators (mean/max, ABMIL, CLAM-SB)
-│   ├── mil_utils.py                  ← synthetic bags, leakage-safe CV, metrics, train/eval loops
+│   ├── mil_tcga.py                   ← TCGA pipeline: GDC download, WSI seg/patch, H-optimus-0, cache
+│   ├── mil_utils.py                  ← leakage-safe CV, metrics, train/eval loops
 │   └── requirements.txt
 └── quiz/
     └── MIL_quiz_source.md            ← 20-question quiz + study guide (NotebookLM source)
@@ -34,26 +35,40 @@ Sections: Background · MIL formulation · Data preparation · Foundation encode
 architecture · Training protocols · Inference · Post-processing · Evaluation & visualization ·
 Conclusion + quiz.
 
-## Notebooks
+## Notebooks — real TCGA pipeline (Google Colab)
 
-Each notebook ships with **two paths**:
-- a **real WSI pipeline** (TCGA `.svs` via OpenSlide + a foundation encoder from Hugging Face) —
-  set `USE_REAL_WSI = True` in notebook 01 and edit the paths; needs a GPU and gated model access;
-- a **synthetic fallback** (default) that generates realistic `(N×d)` feature bags so the entire
-  course — training, inference, heatmaps, metrics, UMAP — runs anywhere with just `torch`,
-  `numpy`, `matplotlib`. No slide download, no GPU required.
+The notebooks use **real TCGA whole-slide images** (no synthetic data) for NSCLC subtyping:
+**TCGA-LUAD vs TCGA-LUSC**. Built for **Google Colab + Google Drive**.
 
-Run them in order; notebook 01 writes `synthetic_bags.pkl`, which the rest consume.
+**Task & encoder:** LUAD vs LUSC · features from **H-optimus-0** (Bioptimus ViT-G, open, no gating).
+
+**How data flows across the notebooks.** In Colab each notebook runs in its own runtime, so they
+share data through a **feature cache on Google Drive** (`MyDrive/pathology_mil_tcga/`):
+
+1. **`01_data_preparation`** — queries the public GDC portal, downloads ~30 open-access diagnostic
+   slides (~15 LUAD + 15 LUSC, one slide per patient), segments tissue, patches at 20×/256px,
+   encodes every patch with H-optimus-0, and **caches each `(N×d)` bag to Drive**. Slides are
+   processed one at a time and deleted after encoding, so disk stays small. This is the one
+   GPU-heavy, time-consuming step — run it once.
+2. **`02_training`** — loads the cached bags, trains mean-pool / ABMIL / CLAM-SB with
+   patient-stratified CV, and saves the model to Drive.
+3. **`03_inference`**, **`04_postprocessing`** — load the cached bags + model from Drive.
+4. **`05_evaluation_visualization`** — loads the cached bags (trains its own CV models).
+
+Because the cache lives on Drive, you only run `01` once; `02–05` then work in any fresh runtime.
+If you open `02–05` before `01`, they raise a clear "run notebook 01 first" message.
+
+**To run:** open each `.ipynb` in Colab (**Runtime → Change runtime type → GPU**), then
+**Runtime → Run all**. The first cell mounts Drive, installs deps (notebook 01), and writes the
+helper modules — the notebooks are otherwise self-contained.
 
 ```bash
-cd notebooks
-pip install -r requirements.txt
-jupyter lab            # then run 01 → 05
+# local (non-Colab) use also works:
+cd notebooks && pip install -r requirements.txt   # + the OpenSlide system library
 ```
 
-For the **real** pipeline you also need `openslide-python` (+ the OpenSlide system library),
-`opencv-python`, `timm`, and `huggingface_hub` with access to a gated encoder
-(e.g. `MahmoodLab/UNI2-h`). See notebook 01, section 0.
+**Knobs** (top of notebook 01): `PER_CLASS` (slides per class, default 15 — lower it to go faster),
+`MAX_PATCHES` (per-slide patch cap, default 2000), `ENCODER` (default `bioptimus/H-optimus-0`).
 
 ## Quiz
 
@@ -63,6 +78,7 @@ standalone 20-question quiz with a full answer key.
 
 ## A note on the numbers
 
-Performance figures shown in the slides and produced by the synthetic notebooks are
-**illustrative** — they demonstrate the methodology and relative behavior of the models, not
-measured benchmark results. Plug in real TCGA bags to get real numbers.
+The notebooks now compute metrics on **real TCGA data**, but the default cohort is small
+(~30 slides, a *teaching* set), so the figures have wide error bars. For real claims, increase
+`PER_CLASS` and validate on an **external cohort** (a different hospital/scanner). Performance
+figures on the **slides** remain illustrative diagrams, not measured benchmarks.
