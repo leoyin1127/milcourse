@@ -5,7 +5,7 @@ aimed at ML engineers. Covers the full pipeline from gigapixel whole-slide image
 interpretable, weakly-supervised slide predictions, with generic methods (ABMIL / CLAM / TransMIL)
 and modern foundation-model encoders (UNI2, Virchow2, Prov-GigaPath, CONCH).
 
-**Format:** 50-minute lecture + 10-minute Q&A · 5 hands-on notebooks · NotebookLM quiz.
+**Format:** 50-minute lecture + 10-minute Q&A · one hands-on end-to-end TCGA notebook · NotebookLM quiz.
 
 ## Contents
 
@@ -14,11 +14,8 @@ milcourse/
 ├── deck/
 │   └── Pathology_MIL_Course.pptx     ← 49-slide deck (upload to Google Drive → opens as Google Slides)
 ├── notebooks/
-│   ├── 01_data_preparation.ipynb     ← WSI → tissue → patches → features → bag
-│   ├── 02_training.ipynb             ← ABMIL / CLAM-SB, patient-stratified CV, baselines
-│   ├── 03_inference.ipynb            ← score a new slide (prob + attention)
-│   ├── 04_postprocessing.ipynb       ← attention heatmaps, top-k tiles, case aggregation
-│   ├── 05_evaluation_visualization.ipynb  ← AUROC/AUPRC/bAcc, ROC, confusion matrix, UMAP
+│   ├── pathology_mil_tcga.ipynb      ← ONE end-to-end notebook (download→encode→train→infer→heatmap→eval)
+│   ├── build_notebook.py             ← regenerates the notebook (embeds the helper modules)
 │   ├── mil_models.py                 ← reference MIL aggregators (mean/max, ABMIL, CLAM-SB)
 │   ├── mil_tcga.py                   ← TCGA pipeline: GDC download, WSI seg/patch, H-optimus-0, cache
 │   ├── mil_utils.py                  ← leakage-safe CV, metrics, train/eval loops
@@ -35,40 +32,31 @@ Sections: Background · MIL formulation · Data preparation · Foundation encode
 architecture · Training protocols · Inference · Post-processing · Evaluation & visualization ·
 Conclusion + quiz.
 
-## Notebooks — real TCGA pipeline (Google Colab)
+## Notebook — real TCGA pipeline (single, end-to-end)
 
-The notebooks use **real TCGA whole-slide images** (no synthetic data) for NSCLC subtyping:
-**TCGA-LUAD vs TCGA-LUSC**. Built for **Google Colab + Google Drive**.
+`notebooks/pathology_mil_tcga.ipynb` runs the **whole pipeline in one Colab runtime** on **real
+TCGA whole-slide images** (no synthetic data) for NSCLC subtyping — **TCGA-LUAD vs TCGA-LUSC**:
 
-**Task & encoder:** LUAD vs LUSC · features from **H-optimus-0** (Bioptimus ViT-G, open, no gating).
+> **GDC download → tissue seg → 20× patching → H-optimus-0 features → train → infer → heatmaps → evaluate**
 
-**How data flows across the notebooks.** In Colab each notebook runs in its own runtime, so they
-share data through a **feature cache on Google Drive** (`MyDrive/pathology_mil_tcga/`):
+Because everything runs in one runtime, each section reuses the previous section's in-memory
+variables — there's no cross-notebook hand-off. The expensive download+encode is **cached** (to
+Google Drive if mounted, else locally under `pathology_mil_tcga/`), so re-running after a runtime
+restart skips it. The build step is idempotent — already-cached slides are skipped.
 
-1. **`01_data_preparation`** — queries the public GDC portal, downloads ~30 open-access diagnostic
-   slides (~15 LUAD + 15 LUSC, one slide per patient), segments tissue, patches at 20×/256px,
-   encodes every patch with H-optimus-0, and **caches each `(N×d)` bag to Drive**. Slides are
-   processed one at a time and deleted after encoding, so disk stays small. This is the one
-   GPU-heavy, time-consuming step — run it once.
-2. **`02_training`** — loads the cached bags, trains mean-pool / ABMIL / CLAM-SB with
-   patient-stratified CV, and saves the model to Drive.
-3. **`03_inference`**, **`04_postprocessing`** — load the cached bags + model from Drive.
-4. **`05_evaluation_visualization`** — loads the cached bags (trains its own CV models).
+**Encoder:** H-optimus-0 (Bioptimus ViT-G, dim 1536) — open, no gating.
 
-Because the cache lives on Drive, you only run `01` once; `02–05` then work in any fresh runtime.
-If you open `02–05` before `01`, they raise a clear "run notebook 01 first" message.
-
-**To run:** open each `.ipynb` in Colab (**Runtime → Change runtime type → GPU**), then
-**Runtime → Run all**. The first cell mounts Drive, installs deps (notebook 01), and writes the
-helper modules — the notebooks are otherwise self-contained.
+**To run:** open the notebook in Colab → **Runtime → Change runtime type → GPU** → **Run all**.
+The first cell installs deps, (optionally) mounts Drive, and writes the helper modules — the
+notebook is otherwise self-contained. ⚠️ The download+encode step does real work and takes a while.
 
 ```bash
 # local (non-Colab) use also works:
 cd notebooks && pip install -r requirements.txt   # + the OpenSlide system library
 ```
 
-**Knobs** (top of notebook 01): `PER_CLASS` (slides per class, default 15 — lower it to go faster),
-`MAX_PATCHES` (per-slide patch cap, default 2000), `ENCODER` (default `bioptimus/H-optimus-0`).
+**Knobs** (cell "1 · Configuration"): `PER_CLASS` (slides per class, default 15 — lower to go
+faster), `MAX_PATCHES` (per-slide patch cap, default 2000), `ENCODER` (default `bioptimus/H-optimus-0`).
 
 ## Quiz
 
