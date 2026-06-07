@@ -194,6 +194,7 @@ def process_slide(meta, cache_dir, model, tfm, target_mpp=0.5, patch_px=256,
     os.makedirs(cache_dir, exist_ok=True); os.makedirs(tmp_dir, exist_ok=True)
     out_path = os.path.join(cache_dir, f"{meta['file_id']}.pt")
     if os.path.exists(out_path):
+        print(f"  [cached] {LABEL_NAME[meta['label']]}  {meta['file_name']}  (already encoded — skipping)")
         return out_path
     svs = os.path.join(tmp_dir, meta["file_name"])
     try:
