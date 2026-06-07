@@ -82,7 +82,7 @@ if DEVICE != "cuda":
     print("⚠️  No GPU detected — Midnight-12k is very slow on CPU. "
           "Runtime → Change runtime type → GPU, then re-run.")
 
-PER_CLASS   = 15      # slides per class (LUAD / LUSC); ~30 total. Lower to go faster.
+PER_CLASS   = 50      # slides per class (LUAD / LUSC); ~100 total. Lower to go faster (heavy download+encode).
 MAX_PATCHES = 2000    # cap patches/slide to bound encode time & memory
 ENCODER     = "kaiko-ai/midnight"
 print(f"device={DEVICE} | per_class={PER_CLASS} | cache={CACHE}")
@@ -126,7 +126,8 @@ md(r"""
 
 Compact implementations live in `mil_models.py` (mean/max pool, gated **ABMIL**, **CLAM-SB**
 with the instance-clustering loss). We use **patient-stratified** CV and weighted cross-entropy,
-and report **mean ± std AUROC**. With ~30 slides these numbers are *illustrative* — the point is
+and report **mean ± std AUROC**. With ~100 slides the folds are larger so the metric is far less
+jumpy than a tiny cohort, but these are still *illustrative* numbers — the point is
 the methodology and beating the mean-pool baseline.
 """),
 code(r"""
@@ -272,7 +273,7 @@ md(r"""
 - One runtime, end-to-end: **download → encode → train → infer → heatmap → evaluate**.
 - Frozen **Midnight-12k** features + a small trainable **CLAM-SB** head.
 - Honest evaluation: **patient-level** splits, **mean ± std**, beat **mean-pool**, inspect attention + UMAP.
-- ⚠️ ~30 slides is a *teaching* cohort — raise `PER_CLASS` and validate on an **external cohort** for real claims.
+- ⚠️ ~100 slides is still a small *teaching* cohort — for real claims raise `PER_CLASS` further and validate on an **external cohort**.
 """),
 ]
 

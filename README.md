@@ -62,7 +62,7 @@ download+encode step does real work and takes a while.
 cd notebooks && pip install -r requirements.txt   # + the OpenSlide system library
 ```
 
-**Knobs** (cell "1 · Configuration"): `PER_CLASS` (slides per class, default 15 — lower to go
+**Knobs** (cell "1 · Configuration"): `PER_CLASS` (slides per class, default 50 ≈ 100 slides — lower to go
 faster), `MAX_PATCHES` (per-slide patch cap, default 2000), `ENCODER` (default `kaiko-ai/midnight`).
 
 ## Quiz
@@ -74,6 +74,6 @@ standalone 20-question quiz with a full answer key.
 ## A note on the numbers
 
 The notebooks now compute metrics on **real TCGA data**, but the default cohort is small
-(~30 slides, a *teaching* set), so the figures have wide error bars. For real claims, increase
-`PER_CLASS` and validate on an **external cohort** (a different hospital/scanner). Performance
+(~100 slides at the default `PER_CLASS=50`, a *teaching* set). For real claims, increase
+`PER_CLASS` further and validate on an **external cohort** (a different hospital/scanner). Performance
 figures on the **slides** remain illustrative diagrams, not measured benchmarks.
